@@ -1,0 +1,6 @@
+alias grb='gradle clean build'
+alias grr='gradle bootRun'
+alias gra='gradle clean build && gradle bootRun'
+alias npi='npm install'
+alias nps='npm start'
+alias npt='npm test'
