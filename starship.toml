@@ -1,0 +1,47 @@
+#Location: ~/.config/starship.toml
+#What_is_starship: https://starship.rs/
+
+add_newline = false
+command_timeout = 2000
+
+format = """$username$directory$git_branch$git_metrics -> """
+
+[username]
+disabled = false
+show_always = true
+style_user = 'yellow bold'
+style_root = 'black bold'
+format = '[$user](cyan)[@](#FF6347)'
+
+[directory]
+home_symbol = '~'
+format = '[$path]($style)'
+
+[git_branch]
+disabled = false
+format = '[\($branch\)]($style)'
+style = 'blue bold'
+
+[nodejs]
+disabled = true
+
+[git_metrics]
+disabled = false
+added_style = 'green'
+deleted_style = 'red'
+format = '([\[+$added\]]($added_style))([\[-$deleted\]]($deleted_style))'
+
+[vagrant]
+disabled = true
+
+[docker_context]
+disabled = true
+
+[helm]
+disabled = true
+
+[ruby]
+disabled = true
+
+[terraform]
+disabled = true
