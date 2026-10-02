@@ -17,3 +17,4 @@ alias ir="~/projects/personal/auto-rebase/auto-rebase.zsh"
 
 autoload -U colors && colors
 PS1='%F{green}%n@%m%f:%F{blue}%~%f %# '
+eval "$(starship init zsh)"
