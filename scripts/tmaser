@@ -1,0 +1,185 @@
+#!/usr/bin/env bash
+
+usage() {
+    printf '%s\n' 'Usage: tmaser [-h] [-f] [-l SESSION ...]
+
+Close tmux sessions and terminate the programs running inside them.
+Without -l, close all sessions on the current default tmux server.
+
+Options:
+  -h                 Show this help and exit.
+  -f                 Skip confirmation.
+  -l SESSION ...     Close only the named sessions (exact matches).
+                     Quote names containing spaces.
+
+Examples:
+  ./tmaser
+  ./tmaser -f
+  ./tmaser -l work dev
+  ./tmaser -f -l "my work"
+
+Exit status: 0 success or cancellation, 1 operational error, 2 invalid usage.'
+}
+
+usage_error() {
+    printf 'tmaser: %s\nTry tmaser -h for help.\n' "$1" >&2
+    exit 2
+}
+
+force=false
+selected=false
+requested=()
+
+while (( $# > 0 )); do
+    case "$1" in
+        -h)
+            usage
+            exit 0
+            ;;
+        -f)
+            force=true
+            shift
+            ;;
+        -l)
+            selected=true
+            shift
+            count=0
+            while (( $# > 0 )); do
+                case "$1" in
+                    -*) break ;;
+                esac
+                [[ -n "$1" ]] || usage_error 'Session names cannot be empty.'
+                requested+=("$1")
+                count=$((count + 1))
+                shift
+            done
+            (( count > 0 )) || usage_error '-l requires at least one session name.'
+            ;;
+        -*) usage_error "Unknown option: $1" ;;
+        *) usage_error "Unexpected argument: $1" ;;
+    esac
+done
+
+if ! command -v tmux >/dev/null 2>&1; then
+    printf 'tmaser: tmux is not installed or is not on PATH.\n' >&2
+    exit 1
+fi
+
+# Capture errors as well as output so an absent server can be distinguished
+# from a permissions error or another connection failure.
+sessions=$(LC_ALL=C tmux list-sessions -F '#{session_id}|#{session_name}' 2>&1)
+status=$?
+if (( status != 0 )); then
+    case "$sessions" in
+        'no server running on '*|'error connecting to '*' (No such file or directory)'|'no sessions')
+            sessions=''
+            ;;
+        *)
+            printf 'tmaser: could not list sessions: %s\n' "$sessions" >&2
+            exit 1
+            ;;
+    esac
+fi
+
+session_ids=()
+session_names=()
+session_id_pattern='^\$[0-9]+$'
+if [[ -n "$sessions" ]]; then
+    while IFS= read -r record; do
+        # A printable separator survives output paths that escape tabs. Split
+        # only the first separator so names retain spaces and additional pipes.
+        session_id=${record%%|*}
+        session_name=${record#*|}
+        if [[ "$record" != *'|'* || ! "$session_id" =~ $session_id_pattern || -z "$session_name" ]]; then
+            printf 'tmaser: malformed session record: %q\n' "$record" >&2
+            exit 1
+        fi
+        session_ids+=("$session_id")
+        session_names+=("$session_name")
+    done <<< "$sessions"
+fi
+
+target_ids=()
+target_names=()
+if "$selected"; then
+    missing=false
+    for name in "${requested[@]}"; do
+        found=false
+        for (( i=0; i<${#session_ids[@]}; i++ )); do
+            if [[ "${session_names[i]}" == "$name" ]]; then
+                found=true
+                duplicate=false
+                for id in "${target_ids[@]}"; do
+                    [[ "$id" == "${session_ids[i]}" ]] && duplicate=true
+                done
+                if ! "$duplicate"; then
+                    target_ids+=("${session_ids[i]}")
+                    target_names+=("$name")
+                fi
+                break
+            fi
+        done
+        if ! "$found"; then
+            printf 'tmaser: no session named %q.\n' "$name" >&2
+            missing=true
+        fi
+    done
+    "$missing" && exit 1
+else
+    target_ids=("${session_ids[@]}")
+    target_names=("${session_names[@]}")
+fi
+
+if (( ${#target_ids[@]} == 0 )); then
+    printf 'No tmux sessions to close.\n'
+    exit 0
+fi
+
+printf 'Sessions to close:\n'
+for name in "${target_names[@]}"; do
+    printf '  %q\n' "$name"
+done
+
+if ! "$force"; then
+    printf 'Close these sessions and terminate their running programs? [y/N] '
+    if ! IFS= read -r answer; then
+        printf '\nCancelled.\n'
+        exit 0
+    fi
+    case "$answer" in
+        [yY]|[yY][eE][sS]) ;;
+        *) printf 'Cancelled.\n'; exit 0 ;;
+    esac
+fi
+
+if ! "$selected"; then
+    # One server command closes every session even when this script is running
+    # inside one of them. It also closes sessions created after the preview.
+    if ! tmux kill-server; then
+        printf 'tmaser: failed to close the tmux server.\n' >&2
+        exit 1
+    fi
+    exit 0
+fi
+
+# Closing our own session can terminate this script, so close it last.
+current_id=''
+if [[ -n "${TMUX:-}" && -n "${TMUX_PANE:-}" ]]; then
+    current_id=$(tmux display-message -p -t "$TMUX_PANE" '#{session_id}' 2>/dev/null) || current_id=''
+fi
+ordered_ids=()
+for id in "${target_ids[@]}"; do
+    [[ "$id" == "$current_id" ]] || ordered_ids+=("$id")
+done
+for id in "${target_ids[@]}"; do
+    [[ "$id" == "$current_id" ]] && ordered_ids+=("$id")
+done
+
+status=0
+for id in "${ordered_ids[@]}"; do
+    if ! tmux kill-session -t "$id"; then
+        printf 'tmaser: failed to close session %s.\n' "$id" >&2
+        status=1
+    fi
+done
+exit "$status"
