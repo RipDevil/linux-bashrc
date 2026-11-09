@@ -30,6 +30,17 @@ ssh-config() {
   fi
 }
 
+function y() {
+    local tmp="$(mktemp -t "yazi-cwd.XXXXXX")" cwd
+    command yazi "$@" --cwd-file="$tmp"
+    IFS= read -r -d '' cwd < "$tmp"
+    [ "$cwd" != "$PWD" ] && [ -d "$cwd" ] && builtin cd -- "$cwd"
+    command rm -f -- "$tmp"
+}
+
+export EDITOR=nvim
+export VISUAL=nvim
+
 autoload -U colors && colors
 PS1='%F{green}%n@%m%f:%F{blue}%~%f %# '
 eval "$(starship init zsh)"
